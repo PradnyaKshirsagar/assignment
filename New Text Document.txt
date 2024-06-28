@@ -1,0 +1,313 @@
+To design a simple credit/debit wallet system in Java, we'll use the following technologies and frameworks:
+
+- **Java** for the core application logic.
+- **Spring Boot** for building the RESTful web services.
+- **H2 Database** for an in-memory database.
+- **Thymeleaf** for creating a simple user interface (UI).
+- **JUnit** for writing and running test cases.
+
+Here is a high-level overview of the project structure and the main components:
+
+### Project Structure
+
+```
+credit-debit-wallet/
+├── src/
+│   ├── main/
+│   │   ├── java/
+│   │   │   └── com/
+│   │   │       └── example/
+│   │   │           └── wallet/
+│   │   │               ├── controller/
+│   │   │               ├── model/
+│   │   │               ├── repository/
+│   │   │               ├── service/
+│   │   │               └── WalletApplication.java
+│   │   └── resources/
+│   │       ├── static/
+│   │       ├── templates/
+│   │       └── application.properties
+│   └── test/
+│       └── java/
+│           └── com/
+│               └── example/
+│                   └── wallet/
+│                       └── WalletApplicationTests.java
+└── pom.xml
+```
+
+### Step-by-Step Implementation
+
+#### 1. Create the Spring Boot Application
+
+Create a new Spring Boot project using Spring Initializr with dependencies: Spring Web, H2 Database, Spring Data JPA, Thymeleaf, and Spring Boot DevTools.
+
+#### 2. Define the Model
+
+Create a `Transaction` model to represent a wallet transaction.
+
+```java
+package com.example.wallet.model;
+
+import javax.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+public class Transaction {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private double amount;
+    private String type; // "credit" or "debit"
+    private LocalDateTime timestamp;
+
+    // Getters and Setters
+}
+```
+
+#### 3. Create the Repository
+
+Create a `TransactionRepository` interface for CRUD operations.
+
+```java
+package com.example.wallet.repository;
+
+import com.example.wallet.model.Transaction;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface TransactionRepository extends JpaRepository<Transaction, Long> {
+}
+```
+
+#### 4. Create the Service
+
+Create a `WalletService` to handle business logic.
+
+```java
+package com.example.wallet.service;
+
+import com.example.wallet.model.Transaction;
+import com.example.wallet.repository.TransactionRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Service
+public class WalletService {
+    @Autowired
+    private TransactionRepository transactionRepository;
+
+    public double getCurrentBalance() {
+        List<Transaction> transactions = transactionRepository.findAll();
+        return transactions.stream().mapToDouble(t -> t.getType().equals("credit") ? t.getAmount() : -t.getAmount()).sum();
+    }
+
+    public Transaction addMoney(double amount) {
+        Transaction transaction = new Transaction();
+        transaction.setAmount(amount);
+        transaction.setType("credit");
+        transaction.setTimestamp(LocalDateTime.now());
+        return transactionRepository.save(transaction);
+    }
+
+    public Transaction withdrawMoney(double amount) {
+        double currentBalance = getCurrentBalance();
+        if (currentBalance >= amount) {
+            Transaction transaction = new Transaction();
+            transaction.setAmount(amount);
+            transaction.setType("debit");
+            transaction.setTimestamp(LocalDateTime.now());
+            return transactionRepository.save(transaction);
+        } else {
+            throw new IllegalArgumentException("Insufficient balance");
+        }
+    }
+
+    public List<Transaction> getTransactionHistory() {
+        return transactionRepository.findAll();
+    }
+}
+```
+
+#### 5. Create the Controller
+
+Create a `WalletController` to handle HTTP requests.
+
+```java
+package com.example.wallet.controller;
+
+import com.example.wallet.model.Transaction;
+import com.example.wallet.service.WalletService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@Controller
+public class WalletController {
+    @Autowired
+    private WalletService walletService;
+
+    @GetMapping("/")
+    public String home(Model model) {
+        model.addAttribute("balance", walletService.getCurrentBalance());
+        return "index";
+    }
+
+    @PostMapping("/addMoney")
+    public String addMoney(@RequestParam double amount, Model model) {
+        walletService.addMoney(amount);
+        return "redirect:/";
+    }
+
+    @PostMapping("/withdrawMoney")
+    public String withdrawMoney(@RequestParam double amount, Model model) {
+        try {
+            walletService.withdrawMoney(amount);
+        } catch (IllegalArgumentException e) {
+            model.addAttribute("error", e.getMessage());
+        }
+        return "redirect:/";
+    }
+
+    @GetMapping("/history")
+    public String transactionHistory(Model model) {
+        List<Transaction> transactions = walletService.getTransactionHistory();
+        model.addAttribute("transactions", transactions);
+        return "history";
+    }
+}
+```
+
+#### 6. Create the UI
+
+Create `index.html` and `history.html` templates in the `src/main/resources/templates` directory.
+
+**index.html:**
+
+```html
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Wallet</title>
+</head>
+<body>
+    <h1>Current Balance: <span th:text="${balance}"></span></h1>
+    <form action="/addMoney" method="post">
+        <input type="number" name="amount" placeholder="Amount">
+        <button type="submit">Add Money</button>
+    </form>
+    <form action="/withdrawMoney" method="post">
+        <input type="number" name="amount" placeholder="Amount">
+        <button type="submit">Withdraw Money</button>
+    </form>
+    <a href="/history">View Transaction History</a>
+    <div th:if="${error}">
+        <p th:text="${error}" style="color: red;"></p>
+    </div>
+</body>
+</html>
+```
+
+**history.html:**
+
+```html
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Transaction History</title>
+</head>
+<body>
+    <h1>Transaction History</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Amount</th>
+                <th>Type</th>
+                <th>Timestamp</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="transaction : ${transactions}">
+                <td th:text="${transaction.amount}"></td>
+                <td th:text="${transaction.type}"></td>
+                <td th:text="${transaction.timestamp}"></td>
+            </tr>
+        </tbody>
+    </table>
+    <a href="/">Back to Home</a>
+</body>
+</html>
+```
+
+#### 7. Configuration
+
+Update `application.properties` for H2 Database configuration.
+
+```properties
+spring.h2.console.enabled=true
+spring.datasource.url=jdbc:h2:mem:testdb
+spring.datasource.driverClassName=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=password
+spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+```
+
+#### 8. Write Test Cases
+
+Create test cases in `src/test/java/com/example/wallet/WalletApplicationTests.java`.
+
+```java
+package com.example.wallet;
+
+import com.example.wallet.model.Transaction;
+import com.example.wallet.service.WalletService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+@SpringBootTest
+class WalletApplicationTests {
+
+    @Autowired
+    private WalletService walletService;
+
+    @Test
+    void testAddMoney() {
+        double initialBalance = walletService.getCurrentBalance();
+        walletService.addMoney(100);
+        assertEquals(initialBalance + 100, walletService.getCurrentBalance());
+    }
+
+    @Test
+    void testWithdrawMoney() {
+        walletService.addMoney(200);
+        double balanceAfterCredit = walletService.getCurrentBalance();
+        walletService.withdrawMoney(100);
+        assertEquals(balanceAfterCredit - 100, walletService.getCurrentBalance());
+    }
+
+    @Test
+    void testWithdrawMoneyInsufficientBalance() {
+        walletService.addMoney(50);
+        assertThrows(IllegalArgumentException.class, () -> walletService.withdrawMoney(100));
+    }
+
+    @Test
+    void testTransactionHistory() {
+        walletService.addMoney(100);
+        walletService.withdrawMoney(50);
+        assertEquals(2, walletService.getTransactionHistory().size());
+    }
+}
+```
+
+
+
